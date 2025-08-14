@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Habaytta — Projects + POI (V8)</title>
+
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+  :root{
+    --bg:#e9e2db; --ink:#3a3330; --accent:#6c5a4d;
+    --panel:#ffffffcc; --panelBorder:#e6e0d9;
+  }
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);}
+  body{font-family:"Cormorant Garamond","Georgia","Times New Roman",serif;}
+  .wrap{max-width:1200px;margin:24px auto;padding:0 16px;}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;}
+  .title{font-size:18px;letter-spacing:.18em;color:var(--accent);text-transform:uppercase;border-bottom:1px solid #cbbbad;padding-bottom:4px;}
+  #map{height:78vh;border-radius:16px;box-shadow:0 14px 40px rgba(0,0,0,.12);overflow:hidden;position:relative;}
+  .leaflet-container{background:transparent;}
+  .leaflet-control-attribution{display:none;}
+
+  /* Dots + labels */
+  .dot-proj{width:7px;height:7px;border:2px solid var(--ink);border-radius:50%;background:transparent;}
+  .hit{width:28px;height:28px;border-radius:50%;background:rgba(0,0,0,0);}
+  .city-label,.proj-label{font-size:11px;letter-spacing:.06em;color:#3a3330;white-space:nowrap;pointer-events:none;}
+
+  /* Project card (PID) */
+  .pid{
+    position:fixed; top:10vh; left:2vw; width:420px; min-width: 320px; max-width:560px;
+    background:var(--panel); backdrop-filter: blur(4px);
+    border:1px solid var(--panelBorder); border-radius:14px; overflow:hidden;
+    box-shadow:0 12px 40px rgba(0,0,0,.12);
+    display:none; opacity:0; transform:translateY(8px); transition: opacity .22s ease, transform .22s ease; z-index: 1000;
+  }
+  .pid.show{display:block;opacity:1;transform:translateY(0);}
+  .pid-head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid #eadfd6;}
+  .pid-title{font-size:14px;letter-spacing:.12em;}
+  .pid-close{cursor:pointer;border:1px solid #cdbfb3;background:#fff;border-radius:8px;padding:4px 8px;font-size:12px;}
+  .pid-body{display:flex;gap:0;}
+  .pid-img{width:50%;aspect-ratio:4/3;object-fit:cover;border-left:1px solid #eadfd6;}
+  .pid-meta{width:50%;padding:10px 12px;font-size:13px;line-height:1.45;}
+  .pid-meta .row{display:grid;grid-template-columns:110px 1fr;column-gap:12px;row-gap:2px;margin:6px 0;}
+  .pid-meta .lbl{opacity:.75;white-space:nowrap;}
+  .pid-meta .val{font-weight:500;overflow-wrap:anywhere;word-break:break-word;white-space:normal;}
+
+  /* POI panel */
+  .pois-panel{
+    position:absolute; right:16px; top:96px; z-index:1200;
+    background:var(--panel); backdrop-filter:blur(4px);
+    border:1px solid var(--panelBorder); border-radius:12px; padding:10px;
+    display:flex; flex-direction:column; gap:10px; width: 240px; pointer-events:auto;
+  }
+  .pois-title{font-size:12px;letter-spacing:.08em;color:var(--accent);text-transform:uppercase;border-bottom:1px solid #eadfd6;padding-bottom:6px;}
+  .section{display:flex;flex-direction:column;gap:6px;}
+  .feat-btn{font-size:13px;padding:8px 10px;border-radius:10px;border:1px solid #cdbfb3;background:#fff;cursor:pointer;text-align:right;}
+  .feat-btn.active{background:#f3ece6;border-color:#b49f8f;}
+  .pois-msg{font-size:12px;color:#503a2b;background:#fff7ef;border:1px solid #e8d8c9;padding:6px 8px;border-radius:8px;display:none;}
+  .pois-hint{font-size:12px;opacity:.8;display:none;}
+
+  /* POI icons */
+  .leaflet-div-icon.poi-bw{background:transparent;border:none;}
+  .poi-bw svg{width:24px;height:24px;stroke:#111;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 1px 0 rgba(0,0,0,.12));}
+  .pop-enter{animation:poi-pop .42s cubic-bezier(.16,.84,.44,1);}
+  @keyframes poi-pop{0%{transform:translateY(-6px) scale(.7);opacity:0;}60%{transform:translateY(0) scale(1.05);opacity:1;}100%{transform:translateY(0) scale(1);opacity:1;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="title">PROJECTS</div>
+    <div style="font-size:12px;opacity:.8">לחץ עיר לזום; אח״כ לחץ נקודה קטנה לפתיחת כרטיס הפרויקט</div>
+  </div>
+
+  <div id="map"></div>
+
+  <div class="pois-panel" id="poisPanel" aria-label="Nearby places filters">
+    <div class="pois-title">סביבה קרובה</div>
+    <div class="section">
+      <button class="feat-btn" data-cat="pray" title="בתי כנסת באזור">Pray</button>
+      <button class="feat-btn" data-cat="kids" title="פארקים/גנים/בתי ספר" disabled>Kids (בקרוב)</button>
+      <button class="feat-btn" data-cat="date" title="מסעדות/קפה/בילוי" disabled>Date night (בקרוב)</button>
+    </div>
+    <div class="pois-msg" id="poisMsg"></div>
+    <div class="pois-hint" id="poisHint">בחר/י פרויקט קודם</div>
+  </div>
+</div>
+
+<!-- Project Card -->
+<div class="pid" id="pid" aria-hidden="true">
+  <div class="pid-head">
+    <div class="pid-title" id="pidTitle">—</div>
+    <button class="pid-close" id="pidClose">סגור</button>
+  </div>
+  <div class="pid-body">
+    <img class="pid-img" id="pidImg" alt="תמונת פרויקט"/>
+    <div class="pid-meta">
+      <div class="row"><div class="lbl">עיר</div><div class="val" id="pidCity">—</div></div>
+      <div class="row"><div class="lbl">אזור</div><div class="val" id="pidArea">—</div></div>
+      <div class="row"><div class="lbl">מחיר למ״ר</div><div class="val" id="pidPpsm">—</div></div>
+      <div class="row"><div class="lbl">יזם</div><div class="val" id="pidDev">—</div></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ===================== DATA (אפשר להרחיב) ===================== */
+const DATA = {
+  cities: [
+    { id:'savion',    name:'סביון',     lat:32.052,  lng:34.873,  zoom:14 },
+    { id:'tel-aviv',  name:'ת״א',       lat:32.0853, lng:34.7818, zoom:12 },
+    { id:'jerusalem', name:'ירושלים',   lat:31.7683, lng:35.2137, zoom:12 }
+  ],
+  projects: [
+    {
+      id:'savion-riverside',
+      cityId:'savion',
+      city:'סביון',
+      area:'גני יהודה',
+      name:'RIVERSIDE',
+      pricePerSqm:'35K-45K NIS',
+      developer:'ELECTRA',
+      image:'https://dummyimage.com/800x600/ffffff/000000.png&text=Project+Image',
+      lat:32.052, lng:34.873
+    }
+    // ➕ תוכל/י להוסיף כאן עוד פרויקטים (אותו מבנה) או שנוציא ל-projects.json
+  ]
+};
+
+/* ===================== INIT MAP ===================== */
+const map = L.map('map', { zoomControl:true }).setView([31.5, 34.9], 8);
+window.__HABAYTTA_MAP__ = map;
+
+// רקע בהיר/מונוכרום (Carto Positron)
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  maxZoom: 20, attribution: '&copy; OpenStreetMap, &copy; CARTO'
+}).addTo(map);
+
+/* ===================== CITIES ===================== */
+const cityLayer = L.layerGroup().addTo(map);
+for (const c of DATA.cities){
+  const marker = L.circleMarker([c.lat,c.lng], {radius:6,color:'#3a3330',weight:2,fill:false});
+  marker.addTo(cityLayer).bindTooltip(`<div class="city-label">${c.name}</div>`, {permanent:true,offset:[0,-12],direction:'top'});
+  marker.on('click', () => focusCity(c));
+}
+
+function focusCity(c){
+  map.setView([c.lat,c.lng], c.zoom || 14);
+  showProjectsForCity(c.id);
+}
+
+/* ===================== PROJECTS ===================== */
+const projectLayer = L.layerGroup().addTo(map);
+
+function showProjectsForCity(cityId){
+  projectLayer.clearLayers();
+  const filtered = DATA.projects.filter(p => p.cityId === cityId);
+  for (const p of filtered){
+    const icon = L.divIcon({ className:'dot-proj', html:'' });
+    const hit  = L.divIcon({ className:'hit',     html:'' });
+    L.marker([p.lat,p.lng], { icon }).addTo(projectLayer);
+    const h = L.marker([p.lat,p.lng], { icon:hit }).addTo(projectLayer);
+    h.on('click', () => openPID(p));
+  }
+}
+
+/* ===================== PROJECT CARD (PID) ===================== */
+const pid       = document.getElementById('pid');
+const pidTitle  = document.getElementById('pidTitle');
+const pidImg    = document.getElementById('pidImg');
+const pidCity   = document.getElementById('pidCity');
+const pidArea   = document.getElementById('pidArea');
+const pidPpsm   = document.getElementById('pidPpsm');
+const pidDev    = document.getElementById('pidDev');
+document.getElementById('pidClose').addEventListener('click', () => pid.classList.remove('show'));
+
+function openPID(p){
+  pidTitle.textContent = p.name || '—';
+  pidImg.src = p.image || '';
+  pidCity.textContent = p.city || '—';
+  pidArea.textContent = p.area || '—';
+  pidPpsm.textContent = p.pricePerSqm || p.price || '—';
+  pidDev.textContent  = p.developer || '—';
+  pid.classList.add('show');
+}
+
+/* ===================== POI: Pray (Synagogues, Star-of-David) ===================== */
+(function(){
+  const prayBtn = document.querySelector('.feat-btn[data-cat="pray"]');
+  const msgBox  = document.getElementById('poisMsg');
+  const hintBox = document.getElementById('poisHint');
+  const radiusKm = 3; // ברירת מחדל 3 ק״מ
+
+  // Map project name -> center
+  let projectByName = {};
+  for (const p of DATA.projects) if (p && p.name) projectByName[p.name.trim()] = {lat:p.lat,lng:p.lng,id:p.id};
+
+  // Track currently selected project (כשכרטיס נפתח)
+  let selectedCenter = null;
+  const obs = new MutationObserver(() => {
+    const name = (pidTitle.textContent || '').trim();
+    if (name && projectByName[name]){
+      selectedCenter = projectByName[name];
+      if (hintBox) hintBox.style.display = 'none';
+    }
+  });
+  obs.observe(pidTitle, {childList:true, characterData:true, subtree:true});
+
+  const prayLayer = L.layerGroup().addTo(map);
+
+  function svgStarOfDavid(){
+    return '<svg viewBox="0 0 24 24" aria-label="Synagogue">'+
+           '<path d="M12 3 L4 17 L20 17 Z" />'+
+           '<path d="M12 21 L4 7 L20 7 Z" />'+
+           '</svg>';
+  }
+  function makeIcon(){
+    return L.divIcon({ className:'poi-bw pop-enter', html: svgStarOfDavid(), iconSize:[24,24], iconAnchor:[12,12] });
+  }
+
+  async function fetchSynagogues(center, radiusMeters){
+    const q = `[out:json][timeout:25];
+      ( nwr(around:${radiusMeters},${center.lat},${center.lng})["amenity"="place_of_worship"]["religion"="jewish"];
+        nwr(around:${radiusMeters},${center.lat},${center.lng})["amenity"="synagogue"]; );
+      out center 100;`;
+    const url = "https://overpass-api.de/api/interpreter";
+    const res = await fetch(url, {
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'},
+      body:"data="+encodeURIComponent(q)
+    });
+    if (!res.ok) throw new Error("Overpass error "+res.status);
+    return res.json();
+  }
+
+  function toLatLng(elem){
+    if (elem.type === 'node') return {lat: elem.lat, lng: elem.lon};
+    if (elem.type === 'way' || elem.type === 'relation'){
+      const c = elem.center || {}; return (c.lat && c.lon) ? {lat:c.lat, lng:c.lon} : null;
+    }
+    return null;
+  }
+  function getName(tags){
+    if (!tags) return 'Synagogue';
+    return tags.name || tags["name:he"] || tags["name:en"] || tags["alt_name"] || 'Synagogue';
+  }
+
+  async function showPray(){
+    if (!selectedCenter){
+      if (hintBox){ hintBox.textContent = 'בחר/י פרויקט קודם'; hintBox.style.display = 'block'; }
+      if (msgBox){ msgBox.style.display='none'; }
+      return;
+    }
+    if (msgBox){ msgBox.textContent = 'מחפש בתי כנסת בסביבה…'; msgBox.style.display='block'; }
+    prayLayer.clearLayers();
+    try{
+      const radMeters = Math.round(radiusKm * 1000);
+      const data = await fetchSynagogues(selectedCenter, radMeters);
+      const elems = (data && data.elements) ? data.elements : [];
+      let count = 0;
+      for (const e of elems){
+        const ll = toLatLng(e); if (!ll) continue;
+        const name = getName(e.tags);
+        const m = L.marker(ll, {icon: makeIcon()});
+        m.bindPopup(`<div style="font-size:13px"><b>${name}</b><br/>Synagogue</div>`);
+        prayLayer.addLayer(m);
+        count++;
+      }
+      if (msgBox){
+        msgBox.textContent = count ? `נמצאו ${count} בתי כנסת בטווח ${radiusKm} ק״מ.` : 'לא נמצאו בתי כנסת באזור.';
+        msgBox.style.display='block';
+      }
+    }catch(err){
+      if (msgBox){ msgBox.textContent = 'לא ניתן לטעון כרגע. נסה/י שוב מאוחר יותר.'; msgBox.style.display='block'; }
+      console.error(err);
+    }
+  }
+
+  if (prayBtn){
+    prayBtn.addEventListener('click', () => {
+      document.querySelectorAll('.feat-btn').forEach(b => b.classList.remove('active'));
+      prayBtn.classList.add('active');
+      showPray();
+    }, {passive:true});
+  }
+
+  // Debug hook
+  window.__HABAYTTA_POI_PRAY__ = { showPray, get selectedCenter(){return selectedCenter;}, layer: prayLayer };
+})();
+</script>
+</body>
+</html>
